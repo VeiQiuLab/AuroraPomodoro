@@ -206,6 +206,22 @@ const int F = 2, S = 1, L = 2;
     Check(c.Engine.RemainingSeconds == c.Engine.CurrentDurationSeconds, "tray reset restores duration");
 }
 
+// --- Single-instance guard (unit-level; real cross-process is smoke-tested) ---
+
+// Primary acquisition + clean release so a later instance can start.
+{
+    var g1 = new SingleInstanceGuard();
+    bool primary1 = g1.TryAcquire();
+    Check(primary1, "first guard acquires primary");
+    Check(g1.IsPrimary, "first guard IsPrimary");
+    g1.Dispose();
+
+    var g2 = new SingleInstanceGuard();
+    bool primary2 = g2.TryAcquire();
+    Check(primary2, "guard acquires primary again after release (no stale lock)");
+    g2.Dispose();
+}
+
 Console.WriteLine("TIMER_ENGINE_TESTS: " + (failures == 0 ? "PASS" : "FAIL"));
 return failures == 0 ? 0 : 1;
 

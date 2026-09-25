@@ -11,5 +11,6 @@
     <Compile Include="../src/TimerPresentation.cs" />
     <Compile Include="../src/PomodoroController.cs" />
     <Compile Include="../src/INotificationSink.cs" />
+    <Compile Include="../src/SingleInstanceGuard.cs" />
   </ItemGroup>
 </Project>

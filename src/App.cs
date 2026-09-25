@@ -10,23 +10,82 @@ public static class App
     {
         bool smoke = HasFlag(args, "--smoke");
         bool traySmoke = HasFlag(args, "--tray-smoke");
+        bool instanceSmoke = HasFlag(args, "--instance-smoke");
         string? shotDir = GetOption(args, "--shots");
+
+        // Single-instance guard applies to production and the instance smoke,
+        // but NOT to the pure functional smokes (which must always run).
+        bool useGuard = !smoke && !traySmoke;
+
+        SingleInstanceGuard? guard = null;
+        if (useGuard)
+        {
+            guard = new SingleInstanceGuard();
+            bool primary = guard.TryAcquire();
+            Console.WriteLine(primary ? "ROLE=PRIMARY" : "ROLE=SECONDARY");
+            Console.Out.Flush();
+            if (!primary)
+            {
+                // Secondary: wake the primary, then exit before creating any
+                // product resource (no second timer/window/tray).
+                SingleInstanceGuard.SignalPrimary();
+                Console.WriteLine("SECONDARY_SIGNALED");
+                Console.Out.Flush();
+                guard.Dispose();
+                return 0;
+            }
+        }
 
         Application app = new()
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown
         };
 
-        // Smoke modes use short durations; production stays 25/5/15.
-        TimerEngine engine = (smoke || traySmoke)
+        TimerEngine engine = (smoke || traySmoke || instanceSmoke)
             ? new TimerEngine(2, 1, 2)
             : new TimerEngine();
 
         PomodoroController controller = new(null, engine);
 
+        // ---- Instance smoke: primary stays hidden, secondary must restore it ----
+        if (instanceSmoke)
+        {
+            MainWindow iw = new(controller, smoke: false, shotDir: null);
+            app.MainWindow = iw;
+
+            guard!.ShowRequested += () => app.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                iw.RestoreFromTray();
+                Console.WriteLine("SHOW_RECEIVED visible=" + iw.IsVisible);
+                Console.Out.Flush();
+            }));
+
+            iw.Loaded += async (_, _) =>
+            {
+                iw.Hide();
+                Console.WriteLine("PRIMARY_HIDDEN");
+                Console.Out.Flush();
+
+                await Task.Delay(9000);
+
+                Console.WriteLine("PRIMARY_EXITING");
+                Console.Out.Flush();
+                guard.Dispose();
+                iw.ExitApplication();
+            };
+
+            iw.Show();
+            int irc = app.Run();
+            return irc;
+        }
+
         bool guiSmoke = smoke && !traySmoke;
         MainWindow window = new(controller, guiSmoke, shotDir);
         app.MainWindow = window;
+
+        // Primary: restore on secondary request.
+        guard?.ShowRequested += () =>
+            app.Dispatcher.BeginInvoke(new Action(() => window.RestoreFromTray()));
 
         int exitCode = 0;
 
@@ -66,6 +125,7 @@ public static class App
         int result = app.Run();
 
         normalTray?.Dispose();
+        guard?.Dispose();
         return smoke ? window.SmokeExitCode : result;
     }
 
