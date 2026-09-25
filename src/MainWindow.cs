@@ -8,24 +8,30 @@ namespace AuroraPomodoro;
 
 public sealed class MainWindow : Window
 {
-    private readonly TimerEngine _engine = new();
+    private readonly TimerEngine _engine;
     private readonly bool _smoke;
 
     private readonly WpfHostAttachment _host = new();
     private readonly WpfGlassMaterial _material = new();
     private readonly WpfRenderHost _renderHost = new();
 
+    private readonly TextBlock _modeText = new();
     private readonly TextBlock _timerText = new();
+    private readonly TextBlock _progressText = new();
     private readonly TextBlock _stateText = new();
+
     private readonly DispatcherTimer _tick = new();
     private DateTime _lastTick;
+
+    private Button? _primaryButton;
+    private Button? _resetButton;
+    private Button? _skipButton;
 
     private bool _initialized;
     private int _checks;
     private int _failures;
 
-    private readonly Rect _glassPanelLocal = new(40, 40, 520, 400);
-    private Button? _overlayPrimary;
+    private readonly Rect _glassPanelLocal = new(40, 40, 520, 440);
 
     public int SmokeExitCode => _failures == 0 ? 0 : 1;
 
@@ -33,11 +39,17 @@ public sealed class MainWindow : Window
     {
         _smoke = smoke;
 
+        // Smoke mode uses short durations to exercise the full cycle quickly.
+        // Production defaults remain 25 / 5 / 15.
+        _engine = smoke
+            ? new TimerEngine(2, 1, 2)
+            : new TimerEngine();
+
         Title = "AuroraPomodoro";
         Width = 640;
-        Height = 520;
+        Height = 560;
         MinWidth = 520;
-        MinHeight = 440;
+        MinHeight = 460;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = new SolidColorBrush(Color.FromRgb(16, 18, 24));
 
@@ -68,41 +80,58 @@ public sealed class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
         };
 
+        _modeText.Text = "Focus";
+        _modeText.FontSize = 20;
+        _modeText.FontWeight = FontWeights.SemiBold;
+        _modeText.Foreground = new SolidColorBrush(Color.FromRgb(150, 210, 255));
+        _modeText.HorizontalAlignment = HorizontalAlignment.Center;
+
         _timerText.Text = _engine.Display();
         _timerText.FontFamily = new FontFamily("Consolas");
         _timerText.FontSize = 84;
         _timerText.Foreground = Brushes.White;
         _timerText.HorizontalAlignment = HorizontalAlignment.Center;
 
-        _stateText.Text = "Idle";
-        _stateText.FontSize = 16;
-        _stateText.Foreground = new SolidColorBrush(Color.FromRgb(190, 196, 210));
-        _stateText.HorizontalAlignment = HorizontalAlignment.Center;
-        _stateText.Margin = new Thickness(0, 8, 0, 24);
+        _progressText.Text = "Focus 1 / 4";
+        _progressText.FontSize = 14;
+        _progressText.Foreground = new SolidColorBrush(Color.FromRgb(200, 206, 220));
+        _progressText.HorizontalAlignment = HorizontalAlignment.Center;
+        _progressText.Margin = new Thickness(0, 4, 0, 4);
 
+        _stateText.Text = "Idle";
+        _stateText.FontSize = 14;
+        _stateText.Foreground = new SolidColorBrush(Color.FromRgb(160, 168, 184));
+        _stateText.HorizontalAlignment = HorizontalAlignment.Center;
+        _stateText.Margin = new Thickness(0, 4, 0, 22);
+
+        stack.Children.Add(_modeText);
         stack.Children.Add(_timerText);
+        stack.Children.Add(_progressText);
         stack.Children.Add(_stateText);
 
-        Button primary = MakeButton("Start");
-        primary.Click += (_, _) => OnPrimary();
+        _primaryButton = MakeButton("Start");
+        _primaryButton.Click += (_, _) => OnPrimary();
 
-        Button reset = MakeButton("Reset");
-        reset.Click += (_, _) => { _engine.Reset(); Refresh(); };
+        _resetButton = MakeButton("Reset");
+        _resetButton.Click += (_, _) => { _engine.Reset(); Refresh(); };
+
+        _skipButton = MakeButton("Skip");
+        _skipButton.Click += (_, _) => { _engine.Skip(); Refresh(); };
 
         StackPanel buttons = new()
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Center,
         };
-        primary.Margin = new Thickness(6);
-        reset.Margin = new Thickness(6);
-        buttons.Children.Add(primary);
-        buttons.Children.Add(reset);
+        foreach (Button b in new[] { _primaryButton, _resetButton, _skipButton })
+        {
+            b.Margin = new Thickness(6);
+            buttons.Children.Add(b);
+        }
 
         stack.Children.Add(buttons);
         overlay.Children.Add(stack);
         root.Children.Add(overlay);
-        _overlayPrimary = primary;
         return root;
     }
 
@@ -111,7 +140,7 @@ public sealed class MainWindow : Window
         return new Button
         {
             Content = text,
-            Padding = new Thickness(22, 10, 22, 10),
+            Padding = new Thickness(20, 9, 20, 9),
             FontSize = 15,
             Background = new SolidColorBrush(Color.FromRgb(40, 44, 54)),
             Foreground = Brushes.White,
@@ -124,9 +153,9 @@ public sealed class MainWindow : Window
     {
         switch (_engine.State)
         {
-            case PomodoroState.Idle: _engine.Start(); break;
-            case PomodoroState.Running: _engine.Pause(); break;
-            case PomodoroState.Paused: _engine.Resume(); break;
+            case TimerState.Idle: _engine.Start(); break;
+            case TimerState.Running: _engine.Pause(); break;
+            case TimerState.Paused: _engine.Resume(); break;
         }
         Refresh();
     }
@@ -189,18 +218,38 @@ public sealed class MainWindow : Window
 
     private void Refresh()
     {
-        _timerText.Text = _engine.Display();
-        _stateText.Text = _engine.State.ToString();
-        if (_overlayPrimary is not null)
+        _modeText.Text = _engine.Mode switch
         {
-            _overlayPrimary.Content = _engine.State switch
+            SessionMode.Focus => "Focus",
+            SessionMode.ShortBreak => "Short Break",
+            SessionMode.LongBreak => "Long Break",
+            _ => "Focus",
+        };
+
+        _timerText.Text = _engine.Display();
+
+        _progressText.Text = _engine.Mode == SessionMode.Focus
+            ? $"Focus {Math.Min(_engine.CurrentFocusNumber, TimerEngine.FocusesPerCycle)} / {TimerEngine.FocusesPerCycle}"
+            : $"Next Focus: {Math.Min(_engine.NextFocusNumber, TimerEngine.FocusesPerCycle)} / {TimerEngine.FocusesPerCycle}";
+
+        _stateText.Text = _engine.State.ToString();
+
+        if (_primaryButton is not null)
+        {
+            _primaryButton.Content = _engine.State switch
             {
-                PomodoroState.Idle => "Start",
-                PomodoroState.Running => "Pause",
-                PomodoroState.Paused => "Resume",
+                TimerState.Idle => "Start",
+                TimerState.Running => "Pause",
+                TimerState.Paused => "Resume",
                 _ => "Start",
             };
         }
+
+        // Idle: Reset/Skip are still meaningful (skip current session).
+        if (_resetButton is not null)
+            _resetButton.IsEnabled = _engine.State != TimerState.Idle || _engine.RemainingSeconds < _engine.CurrentDurationSeconds;
+        if (_skipButton is not null)
+            _skipButton.IsEnabled = true;
     }
 
     private void UpdateGlassRect()
@@ -213,15 +262,12 @@ public sealed class MainWindow : Window
     {
         _tick.Stop();
 
-        // Note: the native path may already have detached the host via its
-        // WM_NCDESTROY safety cleanup before Closed fires. That is expected.
         _host.Dispose();
         _material.Dispose();
 
         if (_smoke)
         {
             Check(!_host.IsAttached, "clean detach");
-
             Console.WriteLine(
                 "AURORAPOMODORO_SMOKE: " + _checks + " checks, " + _failures + " failures");
             Console.WriteLine(
@@ -236,43 +282,48 @@ public sealed class MainWindow : Window
         await DelayAsync(400);
         Check(_host.IsAttached, "AuroraGlass host attached");
         Check(_renderHost.IsReady, "render host ready");
-        Check(_host.CurrentMetrics.ClientWidth > 0 &&
-              _host.CurrentMetrics.ClientHeight > 0, "host metrics valid");
-
-        WpfRenderHostStats s0 = _renderHost.Stats;
-        Check(s0.LastCoreStatus == 0, "Core status OK");
+        Check(_host.CurrentMetrics.ClientWidth > 0, "host metrics valid");
+        Check(_renderHost.Stats.LastCoreStatus == 0, "Core status OK");
 
         await WaitFramesAsync(4);
-        WpfRenderHostStats s1 = _renderHost.Stats;
-        Check(s1.FrameCount > 0, "glass frames presented");
+        Check(_renderHost.Stats.FrameCount > 0, "glass frames presented");
 
-        // Timer: start -> running.
+        // Initial Focus.
+        Check(_engine.Mode == SessionMode.Focus, "starts in Focus");
+        Check(_engine.Display() == "00:02", "focus duration is short (smoke)");
+
+        // Start Focus and let it complete -> ShortBreak.
         OnPrimary();
-        Check(_engine.State == PomodoroState.Running, "start -> Running");
-        await DelayAsync(1200);
-        Check(_engine.RemainingSeconds < _engine.DurationSeconds, "countdown changes");
+        Check(_engine.State == TimerState.Running, "start -> Running");
+        await DelayAsync(2600);
+        Check(_engine.Mode == SessionMode.ShortBreak, "focus complete -> ShortBreak");
+        Check(_engine.CompletedFocusSessions == 1, "focus counted");
 
-        // Pause.
+        // Skip the break -> Focus.
+        _engine.Skip();
+        Refresh();
+        Check(_engine.Mode == SessionMode.Focus, "skip break -> next Focus");
+
+        // Pause / resume.
         OnPrimary();
-        Check(_engine.State == PomodoroState.Paused, "pause -> Paused");
-
-        // Resume.
+        Check(_engine.State == TimerState.Running, "start focus2");
         OnPrimary();
-        Check(_engine.State == PomodoroState.Running, "resume -> Running");
+        Check(_engine.State == TimerState.Paused, "pause -> Paused");
+        OnPrimary();
+        Check(_engine.State == TimerState.Running, "resume -> Running");
 
-        // Reset.
+        // Reset current session only.
         _engine.Reset();
         Refresh();
-        Check(_engine.State == PomodoroState.Idle, "reset -> Idle");
-        Check(_engine.Display() == "25:00", "reset -> 25:00");
+        Check(_engine.State == TimerState.Idle, "reset -> Idle");
+        Check(_engine.Display() == "00:02", "reset restores focus duration");
 
         // Resize.
         WpfHostMetrics before = _host.CurrentMetrics;
         Width += 80; Height += 60;
         UpdateLayout();
         await DelayAsync(300);
-        WpfHostMetrics after = _host.CurrentMetrics;
-        Check(after.ClientWidth != before.ClientWidth, "resize reaches host metrics");
+        Check(_host.CurrentMetrics.ClientWidth != before.ClientWidth, "resize reaches host metrics");
 
         // Minimize / restore.
         WindowState = WindowState.Minimized;
@@ -282,13 +333,13 @@ public sealed class MainWindow : Window
         await DelayAsync(300);
         Check(_host.CurrentMetrics.ClientWidth > 0, "restore recovers metrics");
 
-        await WaitFramesAsync(s1.FrameCount + 4);
+        await WaitFramesAsync(_renderHost.Stats.FrameCount + 4);
         Check(_renderHost.Stats.LastCoreStatus == 0, "Core healthy after resize");
 
         Console.WriteLine("RUNTIME_LAUNCH=PASS");
         Console.WriteLine("AURORAGLASS_INIT=PASS");
         Console.WriteLine("GLASS_SURFACE=PASS");
-        Console.WriteLine("TIMER=PASS");
+        Console.WriteLine("CYCLE=PASS");
         Console.WriteLine("RESIZE=PASS");
         Console.WriteLine("MINIMIZE_RESTORE=PASS");
 
@@ -317,14 +368,7 @@ public sealed class MainWindow : Window
     private void Check(bool condition, string name)
     {
         ++_checks;
-        if (condition)
-        {
-            Console.WriteLine("[PASS] " + name);
-        }
-        else
-        {
-            ++_failures;
-            Console.WriteLine("[FAIL] " + name);
-        }
+        if (condition) Console.WriteLine("[PASS] " + name);
+        else { ++_failures; Console.WriteLine("[FAIL] " + name); }
     }
 }
