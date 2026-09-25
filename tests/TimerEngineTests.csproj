@@ -8,5 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../src/TimerEngine.cs" />
+    <Compile Include="../src/TimerPresentation.cs" />
   </ItemGroup>
 </Project>

@@ -120,5 +120,21 @@ const int F = 2, S = 1, L = 2;
     Check(e.Display() == "00:02", "resetcycle duration = focus (short test)");
 }
 
+// Presentation mappings.
+{
+    Check(TimerPresentation.ModeTitle(SessionMode.Focus) == "Focus", "title Focus");
+    Check(TimerPresentation.ModeTitle(SessionMode.ShortBreak) == "Short Break", "title Short Break");
+    Check(TimerPresentation.ModeTitle(SessionMode.LongBreak) == "Long Break", "title Long Break");
+
+    Check(TimerPresentation.PrimaryButtonText(TimerState.Idle) == "Start", "btn Idle=Start");
+    Check(TimerPresentation.PrimaryButtonText(TimerState.Running) == "Pause", "btn Running=Pause");
+    Check(TimerPresentation.PrimaryButtonText(TimerState.Paused) == "Resume", "btn Paused=Resume");
+
+    var e = new TimerEngine(2, 1, 2);
+    Check(TimerPresentation.ProgressText(e) == "Focus 1 / 4", "progress focus 1");
+    e.Start(); e.Tick(2);   // -> ShortBreak
+    Check(TimerPresentation.ProgressText(e) == "Next Focus: 2 / 4", "progress next focus 2");
+}
+
 Console.WriteLine("TIMER_ENGINE_TESTS: " + (failures == 0 ? "PASS" : "FAIL"));
 return failures == 0 ? 0 : 1;
