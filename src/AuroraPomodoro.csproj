@@ -11,5 +11,36 @@
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
     <StartupObject>AuroraPomodoro.App</StartupObject>
+
+    <!-- DEV validation dependency: local isolated AuroraGlass Release SDK stage
+         (commit d6dc182). NOT an official release. -->
+    <AuroraGlassSdkDir>$(MSBuildThisFileDirectory)..\external\AuroraGlass-dev-d6dc182</AuroraGlassSdkDir>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="AuroraGlass.Wpf">
+      <HintPath>$(AuroraGlassSdkDir)\managed\WPF\Release\AuroraGlass.Wpf.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <AuroraGlassShader Include="$(AuroraGlassSdkDir)\shaders\background.hlsl" />
+    <AuroraGlassShader Include="$(AuroraGlassSdkDir)\shaders\blur.hlsl" />
+    <AuroraGlassShader Include="$(AuroraGlassSdkDir)\shaders\fullscreen_triangle.hlsl" />
+    <AuroraGlassShader Include="$(AuroraGlassSdkDir)\shaders\glass.hlsl" />
+  </ItemGroup>
+
+  <Target Name="CopyAuroraGlassRuntime" AfterTargets="Build">
+    <Copy SourceFiles="$(AuroraGlassSdkDir)\bin\Release\AuroraGlassWpfInterop.dll"
+          DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(AuroraGlassShader)"
+          DestinationFolder="$(OutDir)shaders" SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="CopyAuroraGlassRuntimeToPublish" AfterTargets="Publish">
+    <Copy SourceFiles="$(AuroraGlassSdkDir)\bin\Release\AuroraGlassWpfInterop.dll"
+          DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(AuroraGlassShader)"
+          DestinationFolder="$(PublishDir)shaders" SkipUnchangedFiles="true" />
+  </Target>
 </Project>

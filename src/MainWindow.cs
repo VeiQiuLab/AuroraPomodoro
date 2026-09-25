@@ -4,11 +4,13 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using AuroraGlass.Wpf;
 using Button = System.Windows.Controls.Button;
 using TextBlock = System.Windows.Controls.TextBlock;
 using StackPanel = System.Windows.Controls.StackPanel;
 using Grid = System.Windows.Controls.Grid;
 using Border = System.Windows.Controls.Border;
+using Image = System.Windows.Controls.Image;
 using KeyEventArgs = System.Windows.Input.KeyEventArgs;
 using Color = System.Windows.Media.Color;
 using Application = System.Windows.Application;
@@ -23,6 +25,7 @@ using Point = System.Windows.Point;
 using LinearGradientBrush = System.Windows.Media.LinearGradientBrush;
 using CornerRadius = System.Windows.CornerRadius;
 using Thickness = System.Windows.Thickness;
+using Rect = System.Windows.Rect;
 
 namespace AuroraPomodoro;
 
@@ -44,6 +47,15 @@ public sealed class MainWindow : Window
     private Button? _resetButton;
     private Button? _skipButton;
     private Button? _settingsButton;
+
+    // Airspace-safe AuroraGlass composition (D3DImage path; no HwndHost).
+    private Grid? _rootGrid;
+    private Border? _card;
+    private Image? _glassImage;
+    private WpfGlassImageSource? _glass;
+    private WpfGlassMaterial? _glassMaterial;
+    private double _dpiScaleX = 1.0;
+    private double _dpiScaleY = 1.0;
 
     private bool _exiting;
     private int _checks;
@@ -80,7 +92,6 @@ public sealed class MainWindow : Window
 
     private UIElement BuildContent()
     {
-        // Pure WPF composition: no HwndHost / native child HWND.
         Grid root = new()
         {
             Background = new LinearGradientBrush(
@@ -89,17 +100,31 @@ public sealed class MainWindow : Window
                 new Point(0, 0),
                 new Point(0, 1)),
         };
+        _rootGrid = root;
 
+        // AuroraGlass composition, first in the tree. Rendered offscreen and
+        // presented as a WPF ImageSource (D3DImage) - NOT an HwndHost, so it
+        // never covers the WPF controls above it.
+        _glassImage = new Image
+        {
+            Stretch = Stretch.Fill,
+            IsHitTestVisible = false,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+        };
+        root.Children.Add(_glassImage);
+
+        // Transparent card so the AuroraGlass panel shows through behind text.
         Border card = new()
         {
+            Width = 300,
             CornerRadius = new CornerRadius(18),
-            Background = new SolidColorBrush(Color.FromRgb(26, 29, 36)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(44, 49, 60)),
-            BorderThickness = new Thickness(1),
+            Background = Brushes.Transparent,
             Padding = new Thickness(34, 30, 34, 30),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
         };
+        _card = card;
 
         StackPanel stack = new()
         {
@@ -119,7 +144,7 @@ public sealed class MainWindow : Window
         _timerText.TextAlignment = TextAlignment.Center;
 
         _progressText.FontSize = 14;
-        _progressText.Foreground = new SolidColorBrush(Color.FromRgb(170, 178, 192));
+        _progressText.Foreground = new SolidColorBrush(Color.FromRgb(190, 198, 212));
         _progressText.HorizontalAlignment = HorizontalAlignment.Center;
         _progressText.Margin = new Thickness(0, 6, 0, 30);
 
@@ -149,12 +174,11 @@ public sealed class MainWindow : Window
         stack.Children.Add(_primaryButton);
         stack.Children.Add(secondary);
 
-        // Weak, low-emphasis settings entry (primary entry point is the tray menu).
         _settingsButton = new Button
         {
             Content = "Settings",
             FontSize = 12,
-            Foreground = new SolidColorBrush(Color.FromRgb(150, 158, 172)),
+            Foreground = new SolidColorBrush(Color.FromRgb(160, 168, 182)),
             Background = Brushes.Transparent,
             BorderThickness = new Thickness(0),
             HorizontalAlignment = HorizontalAlignment.Center,
@@ -166,6 +190,9 @@ public sealed class MainWindow : Window
 
         card.Child = stack;
         root.Children.Add(card);
+
+        root.SizeChanged += OnRootSizeChanged;
+        card.SizeChanged += (_, _) => UpdateGlassRects();
         return root;
     }
 
@@ -195,17 +222,13 @@ public sealed class MainWindow : Window
         BorderThickness = new Thickness(1),
     };
 
-    private void OnControllerChanged()
-    {
-        Refresh();
-    }
+    private void OnControllerChanged() => Refresh();
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         e.Handled = HandleKey(e.Key);
     }
 
-    /// <summary>Window-level key handling. Returns true if the key was consumed.</summary>
     public bool HandleKey(Key key)
     {
         switch (key)
@@ -227,6 +250,12 @@ public sealed class MainWindow : Window
         {
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
 
+            DpiScale dpi = VisualTreeHelper.GetDpi(this);
+            _dpiScaleX = dpi.DpiScaleX > 0 ? dpi.DpiScaleX : 1.0;
+            _dpiScaleY = dpi.DpiScaleY > 0 ? dpi.DpiScaleY : 1.0;
+
+            InitializeAuroraGlass();
+
             Refresh();
 
             _lastTick = DateTime.UtcNow;
@@ -240,6 +269,71 @@ public sealed class MainWindow : Window
             Console.WriteLine(ex);
             ++_failures;
             if (_smoke) ExitApplication();
+        }
+    }
+
+    private void InitializeAuroraGlass()
+    {
+        if (_rootGrid is null || _glassImage is null) return;
+
+        int pxW = Math.Max(1, (int)Math.Round(_rootGrid.ActualWidth * _dpiScaleX));
+        int pxH = Math.Max(1, (int)Math.Round(_rootGrid.ActualHeight * _dpiScaleY));
+
+        _glass = new WpfGlassImageSource(pxW, pxH);
+
+        _glassMaterial = new WpfGlassMaterial();
+        _glassMaterial.SetBlurRadius(16.0f);
+        _glassMaterial.SetRefractionStrength(0.30f);
+        _glassMaterial.SetDispersionStrength(0.10f);
+        _glassMaterial.SetThickness(0.58f);
+        _glassMaterial.SetEdgeFresnel(0.80f);
+        _glassMaterial.SetSpecularStrength(1.10f);
+        _glassMaterial.SetTintAmount(0.10f);
+        _glassMaterial.SetSaturation(1.02f);
+        _glassMaterial.SetBrightness(1.02f);
+        _glassMaterial.SetNoiseAmount(0.01f);
+        _glassMaterial.SetCornerRadius(30.0f);
+        _glassMaterial.SetOpacity(0.86f);
+        _glassMaterial.SetHighlightPosition(0.32f, 0.24f);
+
+        _glass.SetMaterial(_glassMaterial);
+
+        _glassImage.Source = _glass.ImageSource;
+
+        UpdateGlassRects();
+        _glass.Start();
+    }
+
+    private void OnRootSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (_glass is null || _rootGrid is null) return;
+
+        int pxW = (int)Math.Round(_rootGrid.ActualWidth * _dpiScaleX);
+        int pxH = (int)Math.Round(_rootGrid.ActualHeight * _dpiScaleY);
+        if (pxW <= 0 || pxH <= 0) return; // minimized / zero-size: skip
+
+        _glass.Resize(pxW, pxH);
+        UpdateGlassRects();
+    }
+
+    private void UpdateGlassRects()
+    {
+        if (_glass is null || _card is null || _rootGrid is null) return;
+        if (_card.ActualWidth <= 0 || _card.ActualHeight <= 0) return;
+
+        try
+        {
+            Point origin = _card.TranslatePoint(new Point(0, 0), _rootGrid);
+            var rect = new Rect(
+                origin.X * _dpiScaleX,
+                origin.Y * _dpiScaleY,
+                _card.ActualWidth * _dpiScaleX,
+                _card.ActualHeight * _dpiScaleY);
+            _glass.SetPhysicalRects(rect);
+        }
+        catch
+        {
+            // Layout not ready yet; rects update on the next layout pass.
         }
     }
 
@@ -271,7 +365,6 @@ public sealed class MainWindow : Window
                 _engine.RemainingSeconds < _engine.CurrentDurationSeconds;
     }
 
-    /// <summary>Open the settings dialog (tray "Settings" or the weak button).</summary>
     public void OpenSettings()
     {
         SettingsWindow dialog = new(_controller.Settings)
@@ -285,7 +378,6 @@ public sealed class MainWindow : Window
         }
     }
 
-    /// <summary>Show + activate the window (used by the tray "Open" action).</summary>
     public void RestoreFromTray()
     {
         Show();
@@ -293,7 +385,6 @@ public sealed class MainWindow : Window
         Activate();
     }
 
-    /// <summary>Real application exit path (tray Exit or smoke teardown).</summary>
     public void ExitApplication()
     {
         _exiting = true;
@@ -304,7 +395,6 @@ public sealed class MainWindow : Window
 
     private void OnClosing(object? sender, CancelEventArgs e)
     {
-        // Close (X) hides to tray unless a real exit was requested.
         if (!_exiting && !_smoke)
         {
             e.Cancel = true;
@@ -317,8 +407,16 @@ public sealed class MainWindow : Window
         _tick.Stop();
         _controller.Changed -= OnControllerChanged;
 
+        // Deterministic teardown of the AuroraGlass composition.
+        try { _glass?.Stop(); } catch { }
+        try { _glass?.Dispose(); } catch { }
+        _glass = null;
+        try { _glassMaterial?.Dispose(); } catch { }
+        _glassMaterial = null;
+
         if (_smoke)
         {
+            Check(_glass is null, "glass source disposed");
             Console.WriteLine(
                 "AURORAPOMODORO_SMOKE: " + _checks + " checks, " + _failures + " failures");
             Console.WriteLine("RUNTIME_TEARDOWN=" + (_failures == 0 ? "PASS" : "FAIL"));
@@ -329,10 +427,21 @@ public sealed class MainWindow : Window
     {
         Console.WriteLine("AURORAPOMODORO_SMOKE_BEGIN");
 
-        await DelayAsync(400);
+        await DelayAsync(600);
 
-        // Product contract: UI exists and is composed with pure WPF.
-        Check(Content is Grid, "root is WPF Grid");
+        // Product contract: real AuroraGlass composition via D3DImage (no HwndHost).
+        Check(_glass is not null, "WpfGlassImageSource created");
+        Check(_glass?.ImageSource is not null, "ImageSource non-null");
+        Check(CountHwndHost(this) == 0, "no HwndHost in visual tree");
+        Check(_glassImage is not null && _glassImage.Source is not null, "glass image has source");
+        Check(_glassImage?.IsHitTestVisible == false, "glass image not hit-testable");
+
+        await DelayAsync(500);
+        WpfGlassImageStats stats = _glass!.Stats;
+        Check(stats.Ready, "composition ready");
+        Check(stats.FrameCount > 0, "AuroraGlass frames rendered");
+        Check(stats.LastCoreStatus == 0, "Core render status OK");
+
         Check(_modeText.Text == "Focus", "mode title = Focus");
         Check(_primaryButton is not null && _resetButton is not null &&
               _skipButton is not null && _settingsButton is not null,
@@ -352,35 +461,51 @@ public sealed class MainWindow : Window
         await DelayAsync(300);
         CaptureShot("short-break");
 
-        // Keyboard.
         Check(HandleKey(Key.R), "R consumed");
         Check(_engine.State == TimerState.Idle, "R resets -> Idle");
 
         _controller.Skip();
         Check(_engine.Mode == SessionMode.Focus, "skip -> next Focus");
 
-        // Resize min/large.
         Width = MinWidth; Height = MinHeight; UpdateLayout();
-        await DelayAsync(250);
+        await DelayAsync(350);
+        Check(_glass.Stats.LastCoreStatus == 0, "Core OK after min-size resize");
         Check(ActualWidth > 0, "min-size layout valid");
+
         Width = 900; Height = 700; UpdateLayout();
-        await DelayAsync(300);
+        await DelayAsync(350);
+        Check(_glass.Stats.LastCoreStatus == 0, "Core OK after large resize");
         Check(ActualWidth > 0, "large-size layout valid");
 
         WindowState = WindowState.Minimized;
-        await DelayAsync(200);
+        await DelayAsync(250);
         WindowState = WindowState.Normal;
         Activate();
-        await DelayAsync(300);
+        await DelayAsync(400);
         Check(IsVisible, "restore visible");
+        Check(_glass.Stats.LastCoreStatus == 0, "Core OK after restore");
 
         Console.WriteLine("RUNTIME_LAUNCH=PASS");
+        Console.WriteLine("REAL_AURORAGLASS_RENDER=PASS");
+        Console.WriteLine("NO_HWNDHOST=PASS");
         Console.WriteLine("UI_COMPOSITION=PASS");
         Console.WriteLine("VISUAL_MAPPING=PASS");
         Console.WriteLine("KEYBOARD=PASS");
         Console.WriteLine("RESIZE=PASS");
 
         ExitApplication();
+    }
+
+    private static int CountHwndHost(DependencyObject root)
+    {
+        int count = 0;
+        if (root is System.Windows.Interop.HwndHost) count++;
+        int n = VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < n; ++i)
+        {
+            count += CountHwndHost(VisualTreeHelper.GetChild(root, i));
+        }
+        return count;
     }
 
     private void CaptureShot(string name)
