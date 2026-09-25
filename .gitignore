@@ -1,0 +1,11 @@
+# Build output
+bin/
+obj/
+.vs/
+
+# External SDK dependency (acquired from release ZIP)
+external/
+
+# IDE
+*.user
+*.suo
