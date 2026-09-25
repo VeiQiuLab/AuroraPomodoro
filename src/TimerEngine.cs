@@ -30,8 +30,17 @@ public sealed class TimerEngine
     private readonly int _shortBreakSeconds;
     private readonly int _longBreakSeconds;
 
+    /// <summary>Describes a natural session completion (from Tick, not Skip).</summary>
+    public readonly record struct Completion(SessionMode CompletedMode, SessionMode NextMode);
+
     public SessionMode Mode { get; private set; } = SessionMode.Focus;
     public TimerState State { get; private set; } = TimerState.Idle;
+
+    /// <summary>
+    /// Set only by a natural completion during the most recent Tick; null otherwise.
+    /// Skip and Reset never set this.
+    /// </summary>
+    public Completion? LastTickCompletion { get; private set; }
 
     /// <summary>Focus sessions completed in the current cycle (0..4).</summary>
     public int CompletedFocusSessions { get; private set; }
@@ -90,6 +99,7 @@ public sealed class TimerEngine
     {
         State = TimerState.Idle;
         RemainingSeconds = CurrentDurationSeconds;
+        LastTickCompletion = null;
     }
 
     /// <summary>Reset the entire cycle back to Focus #1.</summary>
@@ -120,11 +130,13 @@ public sealed class TimerEngine
         }
         State = TimerState.Idle;
         RemainingSeconds = CurrentDurationSeconds;
+        LastTickCompletion = null;
     }
 
     /// <summary>Advance the timer. Returns true if a value changed.</summary>
     public bool Tick(double deltaSeconds)
     {
+        LastTickCompletion = null;
         if (State != TimerState.Running || deltaSeconds <= 0.0) return false;
 
         RemainingSeconds -= deltaSeconds;
@@ -139,6 +151,7 @@ public sealed class TimerEngine
     private void CompleteCurrent()
     {
         State = TimerState.Idle;
+        SessionMode completed = Mode;
 
         switch (Mode)
         {
@@ -158,6 +171,7 @@ public sealed class TimerEngine
         }
 
         RemainingSeconds = CurrentDurationSeconds;
+        LastTickCompletion = new Completion(completed, Mode);
     }
 
     public string Display()

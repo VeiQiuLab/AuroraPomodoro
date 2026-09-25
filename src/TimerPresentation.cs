@@ -34,6 +34,21 @@ public static class TimerPresentation
             : $"Next Focus: {n} / {TimerEngine.FocusesPerCycle}";
     }
 
+    /// <summary>Notification text for a natural completion, or null if none.</summary>
+    public static (string Title, string Body)? CompletionNotification(TimerEngine.Completion c)
+    {
+        return c.CompletedMode switch
+        {
+            SessionMode.Focus when c.NextMode == SessionMode.LongBreak =>
+                ("Focus complete", "Time for a long break."),
+            SessionMode.Focus =>
+                ("Focus complete", "Time for a short break."),
+            SessionMode.ShortBreak or SessionMode.LongBreak =>
+                ("Break complete", "Ready for the next focus session."),
+            _ => null,
+        };
+    }
+
     /// <summary>Accent ARGB per session mode (subtle differentiation).</summary>
     public static (byte A, byte R, byte G, byte B) Accent(SessionMode mode) => mode switch
     {

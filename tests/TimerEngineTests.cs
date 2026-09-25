@@ -136,5 +136,81 @@ const int F = 2, S = 1, L = 2;
     Check(TimerPresentation.ProgressText(e) == "Next Focus: 2 / 4", "progress next focus 2");
 }
 
+// --- Controller / notification behaviour ---
+
+// Natural Focus completion notifies.
+{
+    var sink = new RecordingSink();
+    var c = new PomodoroController(sink, new TimerEngine(2, 1, 2));
+    c.PrimaryAction();          // start
+    c.Tick(2);                  // focus completes
+    Check(sink.Events.Count == 1, "focus completion notifies once");
+    Check(sink.Events[0].Title == "Focus complete", "focus notify title");
+    Check(sink.Events[0].Body == "Time for a short break.", "focus notify body short");
+}
+
+// Fourth Focus completion -> long break notification.
+{
+    var sink = new RecordingSink();
+    var c = new PomodoroController(sink, new TimerEngine(1, 1, 1));
+    for (int i = 0; i < 4; i++)
+    {
+        c.PrimaryAction(); c.Tick(1);   // focus i completes -> break
+        if (i < 3) { c.PrimaryAction(); c.Tick(1); } // break completes -> next focus
+    }
+    var last = sink.Events[^1];
+    Check(last.Title == "Focus complete", "4th focus notify title");
+    Check(last.Body == "Time for a long break.", "4th focus notify body long");
+}
+
+// Break completion notifies.
+{
+    var sink = new RecordingSink();
+    var c = new PomodoroController(sink, new TimerEngine(1, 1, 1));
+    c.PrimaryAction(); c.Tick(1);   // focus -> short break (+notify)
+    int after = sink.Events.Count;
+    c.PrimaryAction(); c.Tick(1);   // short break -> focus (+notify)
+    Check(sink.Events.Count == after + 1, "break completion notifies");
+    Check(sink.Events[^1].Title == "Break complete", "break notify title");
+    Check(sink.Events[^1].Body == "Ready for the next focus session.", "break notify body");
+}
+
+// Skip -> no notification.
+{
+    var sink = new RecordingSink();
+    var c = new PomodoroController(sink, new TimerEngine(1, 1, 1));
+    c.Skip();
+    Check(sink.Events.Count == 0, "skip produces no notification");
+}
+
+// Reset -> no notification.
+{
+    var sink = new RecordingSink();
+    var c = new PomodoroController(sink, new TimerEngine(1, 1, 1));
+    c.PrimaryAction(); c.Tick(0.5); c.Reset();
+    Check(sink.Events.Count == 0, "reset produces no notification");
+}
+
+// Tray-style actions delegate to the same timer state.
+{
+    var c = new PomodoroController(null, new TimerEngine(5, 5, 5));
+    c.PrimaryAction();          // Start
+    Check(c.Engine.State == TimerState.Running, "tray primary start");
+    c.PrimaryAction();          // Pause
+    Check(c.Engine.State == TimerState.Paused, "tray primary pause");
+    c.PrimaryAction();          // Resume
+    Check(c.Engine.State == TimerState.Running, "tray primary resume");
+    c.Tick(1);
+    c.Reset();
+    Check(c.Engine.State == TimerState.Idle, "tray reset -> Idle");
+    Check(c.Engine.RemainingSeconds == c.Engine.CurrentDurationSeconds, "tray reset restores duration");
+}
+
 Console.WriteLine("TIMER_ENGINE_TESTS: " + (failures == 0 ? "PASS" : "FAIL"));
 return failures == 0 ? 0 : 1;
+
+sealed class RecordingSink : INotificationSink
+{
+    public List<(string Title, string Body)> Events { get; } = new();
+    public void Notify(string title, string body) => Events.Add((title, body));
+}

@@ -9,5 +9,7 @@
   <ItemGroup>
     <Compile Include="../src/TimerEngine.cs" />
     <Compile Include="../src/TimerPresentation.cs" />
+    <Compile Include="../src/PomodoroController.cs" />
+    <Compile Include="../src/INotificationSink.cs" />
   </ItemGroup>
 </Project>

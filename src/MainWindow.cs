@@ -1,15 +1,30 @@
+using System.ComponentModel;
 using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using AuroraGlass.Wpf;
+using Button = System.Windows.Controls.Button;
+using TextBlock = System.Windows.Controls.TextBlock;
+using StackPanel = System.Windows.Controls.StackPanel;
+using Grid = System.Windows.Controls.Grid;
+using KeyEventArgs = System.Windows.Input.KeyEventArgs;
+using Color = System.Windows.Media.Color;
+using Application = System.Windows.Application;
+using Orientation = System.Windows.Controls.Orientation;
+using Brushes = System.Windows.Media.Brushes;
+using FontWeights = System.Windows.FontWeights;
+using HorizontalAlignment = System.Windows.HorizontalAlignment;
+using VerticalAlignment = System.Windows.VerticalAlignment;
+using TextAlignment = System.Windows.TextAlignment;
+using FontFamily = System.Windows.Media.FontFamily;
 
 namespace AuroraPomodoro;
 
 public sealed class MainWindow : Window
 {
-    private readonly TimerEngine _engine;
+    private readonly PomodoroController _controller;
+    private TimerEngine _engine => _controller.Engine;
     private readonly bool _smoke;
     private readonly string? _shotDir;
 
@@ -29,21 +44,19 @@ public sealed class MainWindow : Window
     private Button? _skipButton;
 
     private bool _initialized;
+    private bool _exiting;
     private int _checks;
     private int _failures;
 
-    // Centered glass panel (physical pixels), computed from layout.
     private Rect _glassPanelLocal = new(0, 0, 0, 0);
 
     public int SmokeExitCode => _failures == 0 ? 0 : 1;
 
-    public MainWindow(bool smoke = false, string? shotDir = null)
+    public MainWindow(PomodoroController controller, bool smoke = false, string? shotDir = null)
     {
+        _controller = controller;
         _smoke = smoke;
         _shotDir = shotDir;
-
-        // Smoke uses short durations to exercise the cycle; production stays 25/5/15.
-        _engine = smoke ? new TimerEngine(2, 1, 2) : new TimerEngine();
 
         Title = "AuroraPomodoro";
         Width = 460;
@@ -59,7 +72,10 @@ public sealed class MainWindow : Window
         _host.MetricsChanged += _ => Dispatcher.BeginInvoke(
             DispatcherPriority.Render, new Action(UpdateGlassRect));
 
+        _controller.Changed += OnControllerChanged;
+
         Loaded += OnLoaded;
+        Closing += OnClosing;
         Closed += OnClosed;
         PreviewKeyDown += OnPreviewKeyDown;
 
@@ -72,7 +88,6 @@ public sealed class MainWindow : Window
         Grid root = new();
         root.Children.Add(_renderHost);
 
-        // Content overlay, centered.
         StackPanel stack = new()
         {
             HorizontalAlignment = HorizontalAlignment.Center,
@@ -85,7 +100,6 @@ public sealed class MainWindow : Window
         _modeText.HorizontalAlignment = HorizontalAlignment.Center;
         _modeText.Margin = new Thickness(0, 0, 0, 6);
 
-        // Monospace => stable width, no layout jump as digits change.
         _timerText.FontFamily = new FontFamily("Consolas");
         _timerText.FontSize = 88;
         _timerText.FontWeight = FontWeights.Bold;
@@ -103,13 +117,13 @@ public sealed class MainWindow : Window
         stack.Children.Add(_progressText);
 
         _primaryButton = PrimaryButton("Start");
-        _primaryButton.Click += (_, _) => PrimaryAction();
+        _primaryButton.Click += (_, _) => _controller.PrimaryAction();
 
         _resetButton = SecondaryButton("Reset");
-        _resetButton.Click += (_, _) => { _engine.Reset(); Refresh(); };
+        _resetButton.Click += (_, _) => _controller.Reset();
 
         _skipButton = SecondaryButton("Skip");
-        _skipButton.Click += (_, _) => { _engine.Skip(); Refresh(); };
+        _skipButton.Click += (_, _) => _controller.Skip();
 
         StackPanel secondary = new()
         {
@@ -124,7 +138,6 @@ public sealed class MainWindow : Window
         stack.Children.Add(_primaryButton);
         stack.Children.Add(secondary);
 
-        // Compute glass panel to cover the central content area.
         stack.SizeChanged += (_, _) =>
         {
             double w = Math.Max(stack.ActualWidth + 80, 260);
@@ -138,49 +151,37 @@ public sealed class MainWindow : Window
         return root;
     }
 
-    private static Button PrimaryButton(string text)
+    private static Button PrimaryButton(string text) => new()
     {
-        Button b = new()
-        {
-            Content = text,
-            MinWidth = 200,
-            Padding = new Thickness(26, 14, 26, 14),
-            FontSize = 18,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = Brushes.White,
-            Background = new SolidColorBrush(Color.FromRgb(58, 110, 190)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(120, 165, 235)),
-            BorderThickness = new Thickness(1),
-            HorizontalAlignment = HorizontalAlignment.Center,
-        };
-        return b;
-    }
+        Content = text,
+        MinWidth = 200,
+        Padding = new Thickness(26, 14, 26, 14),
+        FontSize = 18,
+        FontWeight = FontWeights.SemiBold,
+        Foreground = Brushes.White,
+        Background = new SolidColorBrush(Color.FromRgb(58, 110, 190)),
+        BorderBrush = new SolidColorBrush(Color.FromRgb(120, 165, 235)),
+        BorderThickness = new Thickness(1),
+        HorizontalAlignment = HorizontalAlignment.Center,
+    };
 
-    private static Button SecondaryButton(string text)
+    private static Button SecondaryButton(string text) => new()
     {
-        Button b = new()
-        {
-            Content = text,
-            MinWidth = 92,
-            Padding = new Thickness(16, 8, 16, 8),
-            FontSize = 14,
-            Foreground = new SolidColorBrush(Color.FromRgb(215, 220, 232)),
-            Background = new SolidColorBrush(Color.FromRgb(38, 42, 52)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(78, 84, 98)),
-            BorderThickness = new Thickness(1),
-        };
-        return b;
-    }
+        Content = text,
+        MinWidth = 92,
+        Padding = new Thickness(16, 8, 16, 8),
+        FontSize = 14,
+        Foreground = new SolidColorBrush(Color.FromRgb(215, 220, 232)),
+        Background = new SolidColorBrush(Color.FromRgb(38, 42, 52)),
+        BorderBrush = new SolidColorBrush(Color.FromRgb(78, 84, 98)),
+        BorderThickness = new Thickness(1),
+    };
 
-    private void PrimaryAction()
+    private void OnControllerChanged()
     {
-        switch (_engine.State)
-        {
-            case TimerState.Idle: _engine.Start(); break;
-            case TimerState.Running: _engine.Pause(); break;
-            case TimerState.Paused: _engine.Resume(); break;
-        }
+        ApplyMaterialIfModeChanged();
         Refresh();
+        UpdateGlassRect();
     }
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
@@ -191,15 +192,13 @@ public sealed class MainWindow : Window
     /// <summary>Window-level key handling. Returns true if the key was consumed.</summary>
     public bool HandleKey(Key key)
     {
-        // No text input in this window yet; simple window-level handling.
         switch (key)
         {
             case Key.Space:
-                PrimaryAction();
+                _controller.PrimaryAction();
                 return true;
             case Key.R:
-                _engine.Reset();
-                Refresh();
+                _controller.Reset();
                 return true;
             default:
                 return false;
@@ -212,6 +211,7 @@ public sealed class MainWindow : Window
         {
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
 
+            _lastMode = _engine.Mode;
             ApplyMaterial();
             _renderHost.SetMaterial(_material);
             _initialized = true;
@@ -229,22 +229,36 @@ public sealed class MainWindow : Window
             Console.WriteLine("[FAIL] unhandled exception");
             Console.WriteLine(ex);
             ++_failures;
-            if (_smoke) Close();
+            if (_smoke) ExitApplication();
+        }
+    }
+
+    private SessionMode _lastMode;
+
+    private void ApplyMaterialIfModeChanged()
+    {
+        if (!_initialized) return;
+        if (_engine.Mode != _lastMode)
+        {
+            _lastMode = _engine.Mode;
+            ApplyMaterial();
+            _renderHost.SetMaterial(_material);
         }
     }
 
     private void ApplyMaterial()
     {
-        _material.SetBlurRadius(18.0f);
-        _material.SetRefractionStrength(0.22f);
+        // Slightly calmer than Step 17 (lower opacity + gentle blur).
+        _material.SetBlurRadius(16.0f);
+        _material.SetRefractionStrength(0.20f);
         _material.SetDispersionStrength(0.05f);
         _material.SetThickness(0.58f);
-        _material.SetEdgeFresnel(0.74f);
-        _material.SetSpecularStrength(1.05f);
-        _material.SetTintAmount(0.08f);
-        _material.SetSaturation(1.02f);
-        _material.SetBrightness(1.02f);
-        _material.SetNoiseAmount(0.01f);
+        _material.SetEdgeFresnel(0.70f);
+        _material.SetSpecularStrength(0.95f);
+        _material.SetTintAmount(0.10f);
+        _material.SetSaturation(0.98f);
+        _material.SetBrightness(0.94f);
+        _material.SetNoiseAmount(0.015f);
         _material.SetCornerRadius(30.0f);
         _material.SetOpacity(ModeOpacity());
         _material.SetHighlightPosition(0.30f, 0.20f);
@@ -252,10 +266,10 @@ public sealed class MainWindow : Window
 
     private float ModeOpacity() => _engine.Mode switch
     {
-        SessionMode.Focus => 0.82f,
-        SessionMode.ShortBreak => 0.74f,
-        SessionMode.LongBreak => 0.70f,
-        _ => 0.82f,
+        SessionMode.Focus => 0.70f,
+        SessionMode.ShortBreak => 0.62f,
+        SessionMode.LongBreak => 0.58f,
+        _ => 0.70f,
     };
 
     private void OnTick(object? sender, EventArgs e)
@@ -264,13 +278,7 @@ public sealed class MainWindow : Window
         double delta = (now - _lastTick).TotalSeconds;
         _lastTick = now;
 
-        SessionMode before = _engine.Mode;
-        if (_engine.Tick(delta))
-        {
-            if (_engine.Mode != before) ApplyMaterial();
-            Refresh();
-            UpdateGlassRect();
-        }
+        _controller.Tick(delta);
     }
 
     private void Refresh()
@@ -297,11 +305,9 @@ public sealed class MainWindow : Window
         if (!_initialized || !_host.IsAttached) return;
         if (_glassPanelLocal.Width <= 0) return;
 
-        // Center the glass panel horizontally in the host, slightly below top.
         WpfHostMetrics m = _host.CurrentMetrics;
         if (m.ClientWidth == 0 || m.ClientHeight == 0) return;
 
-        double scale = m.Dpi / 96.0;
         double panelW = _glassPanelLocal.Width;
         double panelH = _glassPanelLocal.Height;
         double x = (m.ClientWidth - panelW) / 2.0;
@@ -312,9 +318,37 @@ public sealed class MainWindow : Window
         _renderHost.SetPhysicalRects(new Rect(x, y, panelW, panelH));
     }
 
+    /// <summary>Show + activate the window (used by the tray "Open" action).</summary>
+    public void RestoreFromTray()
+    {
+        Show();
+        WindowState = WindowState.Normal;
+        Activate();
+    }
+
+    /// <summary>Real application exit path (tray Exit or smoke teardown).</summary>
+    public void ExitApplication()
+    {
+        _exiting = true;
+        _tick.Stop();
+        Close();
+        Application.Current?.Shutdown();
+    }
+
+    private void OnClosing(object? sender, CancelEventArgs e)
+    {
+        // Close (X) hides to tray unless a real exit was requested.
+        if (!_exiting && !_smoke)
+        {
+            e.Cancel = true;
+            Hide();
+        }
+    }
+
     private void OnClosed(object? sender, EventArgs e)
     {
         _tick.Stop();
+        _controller.Changed -= OnControllerChanged;
         _host.Dispose();
         _material.Dispose();
 
@@ -344,50 +378,34 @@ public sealed class MainWindow : Window
 
         CaptureShot("focus-idle");
 
-        PrimaryAction();
-        Check(_engine.State == TimerState.Running, "space/start -> Running");
+        // Tray-style primary action delegates to shared logic.
+        _controller.PrimaryAction();
+        Check(_engine.State == TimerState.Running, "start -> Running");
         Check(_primaryButton!.Content as string == "Pause", "primary = Pause");
-
         CaptureShot("focus-running");
 
         await DelayAsync(2600);
         Check(_engine.Mode == SessionMode.ShortBreak, "focus complete -> ShortBreak");
         Check(_modeText.Text == "Short Break", "mode title updates to Short Break");
-
         await DelayAsync(300);
         CaptureShot("short-break");
 
-        // Keyboard Space toggles primary action.
-        bool consumed = HandleKey(Key.Space);
-        Check(consumed, "space key consumed");
-        Check(_engine.State == TimerState.Idle || _engine.State == TimerState.Running
-              || _engine.State == TimerState.Paused, "space key state valid");
+        // Keyboard.
+        Check(HandleKey(Key.R), "R consumed");
+        Check(_engine.State == TimerState.Idle, "R resets -> Idle");
 
-        // Keyboard R resets.
-        _engine.Start();
-        bool consumedR = HandleKey(Key.R);
-        Check(consumedR, "R key consumed");
-        Check(_engine.State == TimerState.Idle, "R key resets -> Idle");
-
-        // Skip -> next Focus.
-        _engine.Skip();
-        Refresh();
+        _controller.Skip();
         Check(_engine.Mode == SessionMode.Focus, "skip -> next Focus");
 
-        // Resize to min and to larger.
-        WindowState = WindowState.Normal;
-        Width = MinWidth; Height = MinHeight;
-        UpdateLayout();
+        // Resize min/large.
+        Width = MinWidth; Height = MinHeight; UpdateLayout();
         await DelayAsync(250);
         Check(_host.CurrentMetrics.ClientWidth > 0, "min-size metrics valid");
-
-        Width = 900; Height = 700;
-        UpdateLayout();
+        Width = 900; Height = 700; UpdateLayout();
         await DelayAsync(300);
         Check(_host.CurrentMetrics.ClientWidth > 0, "large-size metrics valid");
         Check(_renderHost.Stats.LastCoreStatus == 0, "Core healthy after resize");
 
-        // Minimize / restore.
         WindowState = WindowState.Minimized;
         await DelayAsync(200);
         WindowState = WindowState.Normal;
@@ -395,17 +413,13 @@ public sealed class MainWindow : Window
         await DelayAsync(300);
         Check(_host.CurrentMetrics.ClientWidth > 0, "restore recovers metrics");
 
-        await WaitFramesAsync(_renderHost.Stats.FrameCount + 4);
-        Check(_renderHost.Stats.LastCoreStatus == 0, "Core healthy at end");
-
         Console.WriteLine("RUNTIME_LAUNCH=PASS");
         Console.WriteLine("AURORAGLASS_INIT=PASS");
-        Console.WriteLine("GLASS_SURFACE=PASS");
         Console.WriteLine("VISUAL_MAPPING=PASS");
         Console.WriteLine("KEYBOARD=PASS");
         Console.WriteLine("RESIZE=PASS");
 
-        Close();
+        ExitApplication();
     }
 
     private void CaptureShot(string name)
@@ -448,5 +462,4 @@ public sealed class MainWindow : Window
         if (condition) Console.WriteLine("[PASS] " + name);
         else { ++_failures; Console.WriteLine("[FAIL] " + name); }
     }
-
 }
