@@ -18,6 +18,7 @@ public enum TimerState
 /// Pure, testable Pomodoro cycle state machine.
 /// No UI, no AuroraGlass, no wall-clock — the host drives Tick(seconds).
 /// SessionMode and TimerState are deliberately separate concepts.
+/// Durations come from configuration and can be updated at runtime.
 /// </summary>
 public sealed class TimerEngine
 {
@@ -26,9 +27,9 @@ public sealed class TimerEngine
     public const int DefaultLongBreakSeconds = 15 * 60;
     public const int FocusesPerCycle = 4;
 
-    private readonly int _focusSeconds;
-    private readonly int _shortBreakSeconds;
-    private readonly int _longBreakSeconds;
+    private int _focusSeconds;
+    private int _shortBreakSeconds;
+    private int _longBreakSeconds;
 
     /// <summary>Describes a natural session completion (from Tick, not Skip).</summary>
     public readonly record struct Completion(SessionMode CompletedMode, SessionMode NextMode);
@@ -74,7 +75,26 @@ public sealed class TimerEngine
     public int CurrentFocusNumber => CompletedFocusSessions + 1;
 
     /// <summary>Next focus index for display during a break: 1..4.</summary>
-    public int NextFocusNumber => CompletedFocusSessions + 1;
+    public int NextFocusIndex => CompletedFocusSessions + 1;
+
+    /// <summary>
+    /// Apply new configured durations.
+    /// - Running / Paused: the current session's remaining time is preserved;
+    ///   only future sessions use the new durations.
+    /// - Idle: the current (not-yet-started) session refreshes to its new duration.
+    /// </summary>
+    public void ApplySettings(PomodoroSettings settings)
+    {
+        _focusSeconds = settings.FocusMinutes * 60;
+        _shortBreakSeconds = settings.ShortBreakMinutes * 60;
+        _longBreakSeconds = settings.LongBreakMinutes * 60;
+
+        if (State == TimerState.Idle)
+        {
+            RemainingSeconds = CurrentDurationSeconds;
+        }
+        // Running / Paused: keep RemainingSeconds untouched.
+    }
 
     public void Start()
     {
@@ -109,6 +129,7 @@ public sealed class TimerEngine
         CompletedFocusSessions = 0;
         State = TimerState.Idle;
         RemainingSeconds = _focusSeconds;
+        LastTickCompletion = null;
     }
 
     /// <summary>Manually skip the current session. Skip is NOT completion.</summary>

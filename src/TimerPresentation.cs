@@ -26,7 +26,7 @@ public static class TimerPresentation
         int n = Math.Min(
             engine.Mode == SessionMode.Focus
                 ? engine.CurrentFocusNumber
-                : engine.NextFocusNumber,
+                : engine.NextFocusIndex,
             TimerEngine.FocusesPerCycle);
 
         return engine.Mode == SessionMode.Focus

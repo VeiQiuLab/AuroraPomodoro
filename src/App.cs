@@ -11,7 +11,14 @@ public static class App
         bool smoke = HasFlag(args, "--smoke");
         bool traySmoke = HasFlag(args, "--tray-smoke");
         bool instanceSmoke = HasFlag(args, "--instance-smoke");
+        bool settingsSmoke = HasFlag(args, "--settings-smoke");
         string? shotDir = GetOption(args, "--shots");
+
+        // Pure headless settings smoke (no window / no tray).
+        if (settingsSmoke)
+        {
+            return SettingsSmokeRunner.Run();
+        }
 
         // Single-instance guard applies to production and the instance smoke,
         // but NOT to the pure functional smokes (which must always run).
@@ -117,7 +124,8 @@ public static class App
             normalTray = new TrayIcon(
                 controller,
                 openAction: () => window.RestoreFromTray(),
-                exitAction: () => window.ExitApplication());
+                exitAction: () => window.ExitApplication(),
+                settingsAction: () => window.OpenSettings());
             controller.Sink = new TrayNotificationSink(normalTray);
         }
 

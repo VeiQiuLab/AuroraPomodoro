@@ -138,6 +138,21 @@ public sealed class MainWindow : Window
         stack.Children.Add(_primaryButton);
         stack.Children.Add(secondary);
 
+        // Weak, low-emphasis settings entry (primary entry point is the tray menu).
+        Button settingsButton = new()
+        {
+            Content = "Settings",
+            FontSize = 12,
+            Foreground = new SolidColorBrush(Color.FromRgb(150, 158, 172)),
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 14, 0, 0),
+            Cursor = System.Windows.Input.Cursors.Hand,
+        };
+        settingsButton.Click += (_, _) => OpenSettings();
+        stack.Children.Add(settingsButton);
+
         stack.SizeChanged += (_, _) =>
         {
             double w = Math.Max(stack.ActualWidth + 80, 260);
@@ -316,6 +331,20 @@ public sealed class MainWindow : Window
         if (y < 0) y = 0;
 
         _renderHost.SetPhysicalRects(new Rect(x, y, panelW, panelH));
+    }
+
+    /// <summary>Open the settings dialog (tray "Settings" or the weak button).</summary>
+    public void OpenSettings()
+    {
+        SettingsWindow dialog = new(_controller.Settings)
+        {
+            Owner = IsVisible ? this : null,
+        };
+
+        if (dialog.ShowDialog() == true && dialog.Result is { } result)
+        {
+            _controller.UpdateSettings(result);
+        }
     }
 
     /// <summary>Show + activate the window (used by the tray "Open" action).</summary>

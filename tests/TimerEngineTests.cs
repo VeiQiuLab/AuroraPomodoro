@@ -222,6 +222,138 @@ const int F = 2, S = 1, L = 2;
     g2.Dispose();
 }
 
+// --- Settings: load / save / validation / apply semantics ---
+string tempRoot = Path.Combine(Path.GetTempPath(), "AuroraPomodoroTests-" + Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(tempRoot);
+try
+{
+    // Missing file -> defaults.
+    {
+        var store = new SettingsStore(tempRoot);
+        var s = store.Load();
+        Check(s.FocusMinutes == 25 && s.ShortBreakMinutes == 5 && s.LongBreakMinutes == 15,
+            "missing file -> defaults");
+        Check(s.NotificationsEnabled, "default notifications enabled");
+    }
+
+    // Save -> reload round trip.
+    {
+        var store = new SettingsStore(tempRoot);
+        store.Save(new PomodoroSettings
+        {
+            FocusMinutes = 30, ShortBreakMinutes = 7, LongBreakMinutes = 20,
+            NotificationsEnabled = false,
+        });
+        var s = store.Load();
+        Check(s.FocusMinutes == 30 && s.ShortBreakMinutes == 7 && s.LongBreakMinutes == 20,
+            "save/reload durations");
+        Check(!s.NotificationsEnabled, "save/reload notifications off");
+    }
+
+    // Malformed JSON -> defaults (no throw).
+    {
+        string file = Path.Combine(tempRoot, "settings.json");
+        File.WriteAllText(file, "{ this is not valid json ");
+        var store = new SettingsStore(tempRoot);
+        var s = store.Load();
+        Check(s.FocusMinutes == 25, "malformed json -> defaults");
+    }
+
+    // Invalid durations -> sanitized/clamped.
+    {
+        string file = Path.Combine(tempRoot, "settings.json");
+        File.WriteAllText(file,
+            "{\"schemaVersion\":1,\"focusMinutes\":0,\"shortBreakMinutes\":9999,\"longBreakMinutes\":-3,\"notificationsEnabled\":true}");
+        var store = new SettingsStore(tempRoot);
+        var s = store.Load();
+        Check(s.FocusMinutes == 25, "invalid focus -> fallback 25");
+        Check(s.ShortBreakMinutes == PomodoroSettings.ShortBreakMax, "oversize short -> clamped to max");
+        Check(s.LongBreakMinutes == 15, "negative long -> fallback 15");
+    }
+
+    // Configured durations used for new sessions.
+    {
+        var store = new SettingsStore(tempRoot);
+        var c = new PomodoroController(null, engine: null, store: store);
+        var settings = new PomodoroSettings { FocusMinutes = 40, ShortBreakMinutes = 8, LongBreakMinutes = 22, NotificationsEnabled = true };
+        c.UpdateSettings(settings);
+        Check(c.Engine.CurrentDurationSeconds == 40 * 60, "configured focus duration applied");
+        Check(c.Engine.Display() == "40:00", "configured duration displays 40:00");
+    }
+
+    // Reset uses configured current-mode duration.
+    {
+        var store = new SettingsStore(tempRoot);
+        var c = new PomodoroController(null, engine: null, store: store);
+        c.UpdateSettings(new PomodoroSettings { FocusMinutes = 12, ShortBreakMinutes = 3, LongBreakMinutes = 9 });
+        c.PrimaryAction(); c.Tick(1); c.Reset();
+        Check(c.Engine.CurrentDurationSeconds == 12 * 60, "reset uses configured focus duration");
+        Check(c.Engine.Display() == "12:00", "reset display 12:00");
+    }
+
+    // ResetCycle uses configured Focus duration.
+    {
+        var store = new SettingsStore(tempRoot);
+        var c = new PomodoroController(null, engine: null, store: store);
+        c.UpdateSettings(new PomodoroSettings { FocusMinutes = 18, ShortBreakMinutes = 4, LongBreakMinutes = 10 });
+        c.Engine.ResetCycle();
+        Check(c.Engine.Mode == SessionMode.Focus, "resetcycle mode focus");
+        Check(c.Engine.Display() == "18:00", "resetcycle configured focus duration");
+    }
+
+    // Changing settings while Running preserves remaining time.
+    {
+        var store = new SettingsStore(tempRoot);
+        var c = new PomodoroController(null, engine: null, store: store);
+        c.UpdateSettings(new PomodoroSettings { FocusMinutes = 20, ShortBreakMinutes = 5, LongBreakMinutes = 15 });
+        c.PrimaryAction();          // start
+        c.Tick(60);                 // 1 min elapsed
+        double before = c.Engine.RemainingSeconds;
+        c.UpdateSettings(new PomodoroSettings { FocusMinutes = 50, ShortBreakMinutes = 5, LongBreakMinutes = 15 });
+        Check(c.Engine.State == TimerState.Running, "still running after settings change");
+        Check(Math.Abs(c.Engine.RemainingSeconds - before) < 0.001, "running remaining preserved");
+        c.Reset();
+        Check(c.Engine.Display() == "50:00", "reset after change uses new duration");
+    }
+
+    // Changing settings while Idle refreshes immediately.
+    {
+        var store = new SettingsStore(tempRoot);
+        var c = new PomodoroController(null, engine: null, store: store);
+        c.UpdateSettings(new PomodoroSettings { FocusMinutes = 33, ShortBreakMinutes = 5, LongBreakMinutes = 15 });
+        Check(c.Engine.Display() == "33:00", "idle refreshes to new duration");
+    }
+
+    // Notification toggle: disabled -> no notification, but state advances.
+    // (Settings are seeded on disk and loaded; the injected short engine is
+    //  NOT overridden by the constructor.)
+    {
+        string root = Path.Combine(tempRoot, "notif-off");
+        var seed = new SettingsStore(root);
+        seed.Save(new PomodoroSettings { NotificationsEnabled = false });
+        var sink = new RecordingSink();
+        var c = new PomodoroController(sink, new TimerEngine(2, 1, 2), new SettingsStore(root));
+        c.PrimaryAction(); c.Tick(2);
+        Check(sink.Events.Count == 0, "notifications disabled -> none emitted");
+        Check(c.Engine.Mode == SessionMode.ShortBreak, "state still advanced while notifications off");
+    }
+
+    // Notification toggle: enabled -> notification emitted.
+    {
+        string root = Path.Combine(tempRoot, "notif-on");
+        var seed = new SettingsStore(root);
+        seed.Save(new PomodoroSettings { NotificationsEnabled = true });
+        var sink = new RecordingSink();
+        var c = new PomodoroController(sink, new TimerEngine(2, 1, 2), new SettingsStore(root));
+        c.PrimaryAction(); c.Tick(2);
+        Check(sink.Events.Count == 1, "notifications enabled -> one emitted");
+    }
+}
+finally
+{
+    try { Directory.Delete(tempRoot, recursive: true); } catch { }
+}
+
 Console.WriteLine("TIMER_ENGINE_TESTS: " + (failures == 0 ? "PASS" : "FAIL"));
 return failures == 0 ? 0 : 1;
 

@@ -14,15 +14,18 @@ public sealed class TrayIcon : IDisposable
     private readonly PomodoroController _controller;
     private readonly Action _openAction;
     private readonly Action _exitAction;
+    private readonly Action? _settingsAction;
 
     public TrayIcon(
         PomodoroController controller,
         Action openAction,
-        Action exitAction)
+        Action exitAction,
+        Action? settingsAction = null)
     {
         _controller = controller;
         _openAction = openAction;
         _exitAction = exitAction;
+        _settingsAction = settingsAction;
 
         ContextMenuStrip menu = new();
 
@@ -41,6 +44,13 @@ public sealed class TrayIcon : IDisposable
         menu.Items.Add(reset);
 
         menu.Items.Add(new ToolStripSeparator());
+
+        if (_settingsAction is not null)
+        {
+            ToolStripMenuItem settings = new("Settings");
+            settings.Click += (_, _) => _settingsAction();
+            menu.Items.Add(settings);
+        }
 
         ToolStripMenuItem exit = new("Exit");
         exit.Click += (_, _) => _exitAction();

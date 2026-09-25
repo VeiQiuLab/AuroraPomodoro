@@ -12,5 +12,7 @@
     <Compile Include="../src/PomodoroController.cs" />
     <Compile Include="../src/INotificationSink.cs" />
     <Compile Include="../src/SingleInstanceGuard.cs" />
+    <Compile Include="../src/PomodoroSettings.cs" />
+    <Compile Include="../src/SettingsStore.cs" />
   </ItemGroup>
 </Project>
