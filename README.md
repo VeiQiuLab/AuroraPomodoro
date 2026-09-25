@@ -1,7 +1,6 @@
 # AuroraPomodoro
 
-A Windows x64 Pomodoro desktop application built on the AuroraGlass Liquid
-Glass UI SDK.
+A Windows x64 Pomodoro desktop application built with WPF.
 
 ## Core features
 
@@ -10,21 +9,20 @@ Glass UI SDK.
 - Session notifications
 - Single-instance behavior
 - Persistent settings
-- AuroraGlass UI (glass surface via the AuroraGlass WPF adapter)
+- Pure WPF UI
 
 ## Current version
 
-0.1.0
+0.1.1
 
 ## Requirements
 
 - Windows x64
 - Microsoft .NET Desktop Runtime 10 (x64)
-- Microsoft Visual C++ x64 Redistributable
 
 ## Installation
 
-Use `AuroraPomodoro-0.1.0-win-x64-setup.exe` (per-user install, no admin required).
+Use `AuroraPomodoro-0.1.1-win-x64-setup.exe` (per-user install, no admin required).
 
 Default install location:
 
@@ -32,7 +30,7 @@ Default install location:
 
 ## Portable
 
-`AuroraPomodoro-0.1.0-win-x64.zip`
+`AuroraPomodoro-0.1.1-win-x64.zip`
 
 ## Settings
 
@@ -42,8 +40,14 @@ Settings are preserved across update and uninstall.
 
 ## Signing
 
-The 0.1.0 installer is currently unsigned. Windows SmartScreen may show an
+The 0.1.1 installer is currently unsigned. Windows SmartScreen may show an
 "Unknown Publisher" warning.
+
+## Release history
+
+- 0.1.1 — hotfix: removed the native HwndHost composition path that caused the
+  0.1.0 UI airspace failure, restoring visible and clickable timer controls.
+- 0.1.0 — first public release.
 
 ## License
 

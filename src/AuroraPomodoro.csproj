@@ -11,38 +11,5 @@
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
     <StartupObject>AuroraPomodoro.App</StartupObject>
-
-    <!-- AuroraGlass SDK consumption: v0.8.1 Release configuration. -->
-    <AuroraGlassSdkVersion>0.8.1</AuroraGlassSdkVersion>
-    <AuroraGlassSdkConfig>Release</AuroraGlassSdkConfig>
-    <AuroraGlassSdkDir>$(MSBuildThisFileDirectory)..\external\AuroraGlass-$(AuroraGlassSdkVersion)</AuroraGlassSdkDir>
   </PropertyGroup>
-
-  <ItemGroup>
-    <Reference Include="AuroraGlass.Wpf">
-      <HintPath>$(AuroraGlassSdkDir)\managed\WPF\$(AuroraGlassSdkConfig)\AuroraGlass.Wpf.dll</HintPath>
-    </Reference>
-  </ItemGroup>
-
-  <!-- AuroraGlass runtime assets must travel with BOTH build and publish output. -->
-  <ItemGroup>
-    <AuroraGlassShader Include="$(AuroraGlassSdkDir)\shaders\background.hlsl" />
-    <AuroraGlassShader Include="$(AuroraGlassSdkDir)\shaders\blur.hlsl" />
-    <AuroraGlassShader Include="$(AuroraGlassSdkDir)\shaders\fullscreen_triangle.hlsl" />
-    <AuroraGlassShader Include="$(AuroraGlassSdkDir)\shaders\glass.hlsl" />
-  </ItemGroup>
-
-  <Target Name="CopyAuroraGlassRuntime" AfterTargets="Build">
-    <Copy SourceFiles="$(AuroraGlassSdkDir)\bin\$(AuroraGlassSdkConfig)\AuroraGlassWpfInterop.dll"
-          DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="@(AuroraGlassShader)"
-          DestinationFolder="$(OutDir)shaders" SkipUnchangedFiles="true" />
-  </Target>
-
-  <Target Name="CopyAuroraGlassRuntimeToPublish" AfterTargets="Publish">
-    <Copy SourceFiles="$(AuroraGlassSdkDir)\bin\$(AuroraGlassSdkConfig)\AuroraGlassWpfInterop.dll"
-          DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="@(AuroraGlassShader)"
-          DestinationFolder="$(PublishDir)shaders" SkipUnchangedFiles="true" />
-  </Target>
 </Project>
