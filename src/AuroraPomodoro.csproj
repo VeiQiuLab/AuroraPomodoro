@@ -19,10 +19,18 @@
     </Reference>
   </ItemGroup>
 
+  <!-- AuroraGlass runtime assets must travel with BOTH build and publish output. -->
   <Target Name="CopyAuroraGlassRuntime" AfterTargets="Build">
     <Copy SourceFiles="../external/AuroraGlass-0.8.0/bin/Debug/AuroraGlassWpfInterop.dll"
           DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="../external/AuroraGlass-0.8.0/shaders/background.hlsl;../external/AuroraGlass-0.8.0/shaders/blur.hlsl;../external/AuroraGlass-0.8.0/shaders/fullscreen_triangle.hlsl;../external/AuroraGlass-0.8.0/shaders/glass.hlsl"
           DestinationFolder="$(OutDir)shaders" SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="CopyAuroraGlassRuntimeToPublish" AfterTargets="Publish">
+    <Copy SourceFiles="../external/AuroraGlass-0.8.0/bin/Debug/AuroraGlassWpfInterop.dll"
+          DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="../external/AuroraGlass-0.8.0/shaders/background.hlsl;../external/AuroraGlass-0.8.0/shaders/blur.hlsl;../external/AuroraGlass-0.8.0/shaders/fullscreen_triangle.hlsl;../external/AuroraGlass-0.8.0/shaders/glass.hlsl"
+          DestinationFolder="$(PublishDir)shaders" SkipUnchangedFiles="true" />
   </Target>
 </Project>
