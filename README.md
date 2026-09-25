@@ -44,3 +44,7 @@ Settings are preserved across update and uninstall.
 
 The 0.1.0 installer is currently unsigned. Windows SmartScreen may show an
 "Unknown Publisher" warning.
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE) (SPDX: `Apache-2.0`).

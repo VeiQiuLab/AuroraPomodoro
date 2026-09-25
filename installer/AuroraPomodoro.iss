@@ -41,6 +41,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
+Source: "{#SourceDir}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\AuroraPomodoro.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\AuroraPomodoro.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\AuroraPomodoro.deps.json"; DestDir: "{app}"; Flags: ignoreversion
