@@ -1,13 +1,14 @@
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
-using AuroraGlass.Wpf;
 using Button = System.Windows.Controls.Button;
 using TextBlock = System.Windows.Controls.TextBlock;
 using StackPanel = System.Windows.Controls.StackPanel;
 using Grid = System.Windows.Controls.Grid;
+using Border = System.Windows.Controls.Border;
 using KeyEventArgs = System.Windows.Input.KeyEventArgs;
 using Color = System.Windows.Media.Color;
 using Application = System.Windows.Application;
@@ -18,6 +19,10 @@ using HorizontalAlignment = System.Windows.HorizontalAlignment;
 using VerticalAlignment = System.Windows.VerticalAlignment;
 using TextAlignment = System.Windows.TextAlignment;
 using FontFamily = System.Windows.Media.FontFamily;
+using Point = System.Windows.Point;
+using LinearGradientBrush = System.Windows.Media.LinearGradientBrush;
+using CornerRadius = System.Windows.CornerRadius;
+using Thickness = System.Windows.Thickness;
 
 namespace AuroraPomodoro;
 
@@ -27,10 +32,6 @@ public sealed class MainWindow : Window
     private TimerEngine _engine => _controller.Engine;
     private readonly bool _smoke;
     private readonly string? _shotDir;
-
-    private readonly WpfHostAttachment _host = new();
-    private readonly WpfGlassMaterial _material = new();
-    private readonly WpfRenderHost _renderHost = new();
 
     private readonly TextBlock _modeText = new();
     private readonly TextBlock _timerText = new();
@@ -42,13 +43,11 @@ public sealed class MainWindow : Window
     private Button? _primaryButton;
     private Button? _resetButton;
     private Button? _skipButton;
+    private Button? _settingsButton;
 
-    private bool _initialized;
     private bool _exiting;
     private int _checks;
     private int _failures;
-
-    private Rect _glassPanelLocal = new(0, 0, 0, 0);
 
     public int SmokeExitCode => _failures == 0 ? 0 : 1;
 
@@ -68,10 +67,6 @@ public sealed class MainWindow : Window
 
         Content = BuildContent();
 
-        _host.Attach(this);
-        _host.MetricsChanged += _ => Dispatcher.BeginInvoke(
-            DispatcherPriority.Render, new Action(UpdateGlassRect));
-
         _controller.Changed += OnControllerChanged;
 
         Loaded += OnLoaded;
@@ -85,14 +80,30 @@ public sealed class MainWindow : Window
 
     private UIElement BuildContent()
     {
-        Grid root = new();
-        root.Children.Add(_renderHost);
+        // Pure WPF composition: no HwndHost / native child HWND.
+        Grid root = new()
+        {
+            Background = new LinearGradientBrush(
+                Color.FromRgb(20, 23, 30),
+                Color.FromRgb(12, 14, 18),
+                new Point(0, 0),
+                new Point(0, 1)),
+        };
+
+        Border card = new()
+        {
+            CornerRadius = new CornerRadius(18),
+            Background = new SolidColorBrush(Color.FromRgb(26, 29, 36)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(44, 49, 60)),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(34, 30, 34, 30),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
 
         StackPanel stack = new()
         {
             HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(32),
         };
 
         _modeText.FontSize = 22;
@@ -139,7 +150,7 @@ public sealed class MainWindow : Window
         stack.Children.Add(secondary);
 
         // Weak, low-emphasis settings entry (primary entry point is the tray menu).
-        Button settingsButton = new()
+        _settingsButton = new Button
         {
             Content = "Settings",
             FontSize = 12,
@@ -150,19 +161,11 @@ public sealed class MainWindow : Window
             Margin = new Thickness(0, 14, 0, 0),
             Cursor = System.Windows.Input.Cursors.Hand,
         };
-        settingsButton.Click += (_, _) => OpenSettings();
-        stack.Children.Add(settingsButton);
+        _settingsButton.Click += (_, _) => OpenSettings();
+        stack.Children.Add(_settingsButton);
 
-        stack.SizeChanged += (_, _) =>
-        {
-            double w = Math.Max(stack.ActualWidth + 80, 260);
-            double h = Math.Max(stack.ActualHeight + 70, 320);
-            _glassPanelLocal = new Rect(0, 0, w, h);
-        };
-
-        Grid overlay = new();
-        overlay.Children.Add(stack);
-        root.Children.Add(overlay);
+        card.Child = stack;
+        root.Children.Add(card);
         return root;
     }
 
@@ -194,9 +197,7 @@ public sealed class MainWindow : Window
 
     private void OnControllerChanged()
     {
-        ApplyMaterialIfModeChanged();
         Refresh();
-        UpdateGlassRect();
     }
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
@@ -226,12 +227,6 @@ public sealed class MainWindow : Window
         {
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
 
-            _lastMode = _engine.Mode;
-            ApplyMaterial();
-            _renderHost.SetMaterial(_material);
-            _initialized = true;
-
-            UpdateGlassRect();
             Refresh();
 
             _lastTick = DateTime.UtcNow;
@@ -247,45 +242,6 @@ public sealed class MainWindow : Window
             if (_smoke) ExitApplication();
         }
     }
-
-    private SessionMode _lastMode;
-
-    private void ApplyMaterialIfModeChanged()
-    {
-        if (!_initialized) return;
-        if (_engine.Mode != _lastMode)
-        {
-            _lastMode = _engine.Mode;
-            ApplyMaterial();
-            _renderHost.SetMaterial(_material);
-        }
-    }
-
-    private void ApplyMaterial()
-    {
-        // Slightly calmer than Step 17 (lower opacity + gentle blur).
-        _material.SetBlurRadius(16.0f);
-        _material.SetRefractionStrength(0.20f);
-        _material.SetDispersionStrength(0.05f);
-        _material.SetThickness(0.58f);
-        _material.SetEdgeFresnel(0.70f);
-        _material.SetSpecularStrength(0.95f);
-        _material.SetTintAmount(0.10f);
-        _material.SetSaturation(0.98f);
-        _material.SetBrightness(0.94f);
-        _material.SetNoiseAmount(0.015f);
-        _material.SetCornerRadius(30.0f);
-        _material.SetOpacity(ModeOpacity());
-        _material.SetHighlightPosition(0.30f, 0.20f);
-    }
-
-    private float ModeOpacity() => _engine.Mode switch
-    {
-        SessionMode.Focus => 0.70f,
-        SessionMode.ShortBreak => 0.62f,
-        SessionMode.LongBreak => 0.58f,
-        _ => 0.70f,
-    };
 
     private void OnTick(object? sender, EventArgs e)
     {
@@ -313,24 +269,6 @@ public sealed class MainWindow : Window
             _resetButton.IsEnabled =
                 _engine.State != TimerState.Idle ||
                 _engine.RemainingSeconds < _engine.CurrentDurationSeconds;
-    }
-
-    private void UpdateGlassRect()
-    {
-        if (!_initialized || !_host.IsAttached) return;
-        if (_glassPanelLocal.Width <= 0) return;
-
-        WpfHostMetrics m = _host.CurrentMetrics;
-        if (m.ClientWidth == 0 || m.ClientHeight == 0) return;
-
-        double panelW = _glassPanelLocal.Width;
-        double panelH = _glassPanelLocal.Height;
-        double x = (m.ClientWidth - panelW) / 2.0;
-        double y = (m.ClientHeight - panelH) / 2.0;
-        if (x < 0) x = 0;
-        if (y < 0) y = 0;
-
-        _renderHost.SetPhysicalRects(new Rect(x, y, panelW, panelH));
     }
 
     /// <summary>Open the settings dialog (tray "Settings" or the weak button).</summary>
@@ -378,12 +316,9 @@ public sealed class MainWindow : Window
     {
         _tick.Stop();
         _controller.Changed -= OnControllerChanged;
-        _host.Dispose();
-        _material.Dispose();
 
         if (_smoke)
         {
-            Check(!_host.IsAttached, "clean detach");
             Console.WriteLine(
                 "AURORAPOMODORO_SMOKE: " + _checks + " checks, " + _failures + " failures");
             Console.WriteLine("RUNTIME_TEARDOWN=" + (_failures == 0 ? "PASS" : "FAIL"));
@@ -395,19 +330,17 @@ public sealed class MainWindow : Window
         Console.WriteLine("AURORAPOMODORO_SMOKE_BEGIN");
 
         await DelayAsync(400);
-        Check(_host.IsAttached, "AuroraGlass host attached");
-        Check(_renderHost.IsReady, "render host ready");
-        Check(_renderHost.Stats.LastCoreStatus == 0, "Core status OK");
-        await WaitFramesAsync(4);
-        Check(_renderHost.Stats.FrameCount > 0, "glass frames presented");
 
-        Check(_engine.Mode == SessionMode.Focus, "starts in Focus");
+        // Product contract: UI exists and is composed with pure WPF.
+        Check(Content is Grid, "root is WPF Grid");
         Check(_modeText.Text == "Focus", "mode title = Focus");
+        Check(_primaryButton is not null && _resetButton is not null &&
+              _skipButton is not null && _settingsButton is not null,
+              "all controls exist");
         Check(_primaryButton!.Content as string == "Start", "primary = Start");
 
         CaptureShot("focus-idle");
 
-        // Tray-style primary action delegates to shared logic.
         _controller.PrimaryAction();
         Check(_engine.State == TimerState.Running, "start -> Running");
         Check(_primaryButton!.Content as string == "Pause", "primary = Pause");
@@ -429,21 +362,20 @@ public sealed class MainWindow : Window
         // Resize min/large.
         Width = MinWidth; Height = MinHeight; UpdateLayout();
         await DelayAsync(250);
-        Check(_host.CurrentMetrics.ClientWidth > 0, "min-size metrics valid");
+        Check(ActualWidth > 0, "min-size layout valid");
         Width = 900; Height = 700; UpdateLayout();
         await DelayAsync(300);
-        Check(_host.CurrentMetrics.ClientWidth > 0, "large-size metrics valid");
-        Check(_renderHost.Stats.LastCoreStatus == 0, "Core healthy after resize");
+        Check(ActualWidth > 0, "large-size layout valid");
 
         WindowState = WindowState.Minimized;
         await DelayAsync(200);
         WindowState = WindowState.Normal;
         Activate();
         await DelayAsync(300);
-        Check(_host.CurrentMetrics.ClientWidth > 0, "restore recovers metrics");
+        Check(IsVisible, "restore visible");
 
         Console.WriteLine("RUNTIME_LAUNCH=PASS");
-        Console.WriteLine("AURORAGLASS_INIT=PASS");
+        Console.WriteLine("UI_COMPOSITION=PASS");
         Console.WriteLine("VISUAL_MAPPING=PASS");
         Console.WriteLine("KEYBOARD=PASS");
         Console.WriteLine("RESIZE=PASS");
@@ -464,16 +396,6 @@ public sealed class MainWindow : Window
         {
             Console.WriteLine("[WARN] screenshot failed: " + ex.Message);
         }
-    }
-
-    private async Task WaitFramesAsync(ulong minimum)
-    {
-        for (int i = 0; i < 100; ++i)
-        {
-            if (_renderHost.Stats.FrameCount >= minimum) return;
-            await DelayAsync(30);
-        }
-        Check(false, "render frame wait completed");
     }
 
     private static Task DelayAsync(int ms)
