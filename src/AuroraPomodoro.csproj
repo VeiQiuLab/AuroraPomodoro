@@ -12,9 +12,10 @@
     <PlatformTarget>x64</PlatformTarget>
     <StartupObject>AuroraPomodoro.App</StartupObject>
 
-    <!-- DEV validation dependency: local isolated AuroraGlass Release SDK stage
-         (commit d6dc182). NOT an official release. -->
-    <AuroraGlassSdkDir>$(MSBuildThisFileDirectory)..\external\AuroraGlass-dev-d6dc182</AuroraGlassSdkDir>
+    <!-- Official dependency: AuroraGlass v0.9.0 release SDK
+         (GitHub release VeiQiuLab/AuroraGlass v0.9.0, tag target 8f162a4,
+         asset AuroraGlass-0.9.0-win-x64.zip, sha256 93cc1a8b...). -->
+    <AuroraGlassSdkDir>$(MSBuildThisFileDirectory)..\external\AuroraGlass-release-0.9.0</AuroraGlassSdkDir>
   </PropertyGroup>
 
   <ItemGroup>

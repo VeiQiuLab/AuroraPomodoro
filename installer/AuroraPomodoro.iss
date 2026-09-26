@@ -1,5 +1,11 @@
 ; AuroraPomodoro Inno Setup script (v0.1.1 baseline).
 ; Tracked packaging source. Build output goes to build/installer/ (ignored).
+;
+; 0.1.1 is the first public build that keeps REAL AuroraGlass (0.9.0 Release
+; SDK, airspace-safe WPF D3DImage composition bridge). It therefore ships the
+; AuroraGlass managed/native runtime + shaders again, and requires the
+; Microsoft Visual C++ x64 Redistributable (native interop uses MSVCP140 /
+; VCRUNTIME140).
 
 #define AppName "AuroraPomodoro"
 #define AppVersion "0.1.1"
@@ -9,7 +15,7 @@
 ; Stable AppId — MUST remain identical across all future versions.
 #define AppId "{{6E2B0F3A-9C4D-4E7B-8A1F-2D5C7B9E4A31}"
 
-; Source = verified installer manifest (pure WPF runtime files, no PDB).
+; Source = verified installer manifest (AuroraGlass 0.9.0 runtime files, no PDB).
 #define SourceDir "..\build\installer-proof\AuroraPomodoro"
 
 [Setup]
@@ -46,6 +52,12 @@ Source: "{#SourceDir}\AuroraPomodoro.exe"; DestDir: "{app}"; Flags: ignoreversio
 Source: "{#SourceDir}\AuroraPomodoro.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\AuroraPomodoro.deps.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\AuroraPomodoro.runtimeconfig.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\AuroraGlass.Wpf.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\AuroraGlassWpfInterop.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\shaders\background.hlsl"; DestDir: "{app}\shaders"; Flags: ignoreversion
+Source: "{#SourceDir}\shaders\blur.hlsl"; DestDir: "{app}\shaders"; Flags: ignoreversion
+Source: "{#SourceDir}\shaders\fullscreen_triangle.hlsl"; DestDir: "{app}\shaders"; Flags: ignoreversion
+Source: "{#SourceDir}\shaders\glass.hlsl"; DestDir: "{app}\shaders"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\AuroraPomodoro"; Filename: "{app}\{#AppExeName}"
@@ -58,6 +70,7 @@ Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,AuroraPomodoro}
 [Code]
 const
   DotNetDownloadUrl = 'https://dotnet.microsoft.com/en-us/download/dotnet/10.0';
+  VcRedistDownloadUrl = 'https://aka.ms/vc14/vc_redist.x64.exe';
 
 // --- .NET Desktop Runtime 10 (x64) detection ---
 function IsDotNetDesktop10Installed(): Boolean;
@@ -82,6 +95,16 @@ begin
   end;
 end;
 
+// --- VC++ x64 Redistributable detection (official registry evidence) ---
+function IsVcRedistX64Installed(): Boolean;
+var
+  Installed: Cardinal;
+begin
+  Result := False;
+  if RegQueryDWordValue(HKLM64, 'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64', 'Installed', Installed) then
+    Result := (Installed = 1);
+end;
+
 function InitializeSetup(): Boolean;
 var
   ErrCode: Integer;
@@ -98,25 +121,15 @@ begin
     Result := False;
     Exit;
   end;
-end;
 
-// --- Upgrade cleanup: remove stale 0.1.0 native AuroraGlass files ---
-// 0.1.0 shipped a native HwndHost path (AuroraGlass.Wpf.dll,
-// AuroraGlassWpfInterop.dll, shaders/). 0.1.1 no longer uses them; remove any
-// leftovers so an in-place upgrade does not keep dead native binaries.
-procedure CurStepChanged(CurStep: TSetupStep);
-var
-  Stale: String;
-begin
-  if CurStep = ssPostInstall then
+  if not IsVcRedistX64Installed() then
   begin
-    Stale := ExpandConstant('{app}\AuroraGlass.Wpf.dll');
-    if FileExists(Stale) then DeleteFile(Stale);
-
-    Stale := ExpandConstant('{app}\AuroraGlassWpfInterop.dll');
-    if FileExists(Stale) then DeleteFile(Stale);
-
-    Stale := ExpandConstant('{app}\shaders');
-    if DirExists(Stale) then DelTree(Stale, True, True, True);
+    if MsgBox('AuroraPomodoro requires the Microsoft Visual C++ x64 Redistributable.' + #13#10 +
+              'Please install the latest supported x64 package, then run Setup again.' + #13#10 + #13#10 +
+              'Open the official download now?',
+              mbCriticalError, MB_YESNO) = IDYES then
+      ShellExec('open', VcRedistDownloadUrl, '', '', SW_SHOWNORMAL, ewNoWait, ErrCode);
+    Result := False;
+    Exit;
   end;
 end;
